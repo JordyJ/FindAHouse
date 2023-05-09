@@ -4,11 +4,9 @@ import requests
 from bs4 import BeautifulSoup
 import re
 import pandas as pd
-
 import json
 import time
 import random
-import datetime
 import logging
 
 
@@ -146,77 +144,115 @@ def scrape_link_info(link):
 
     # remove javascript fluff from dict inside script
     jsonStr = re.search(r'\{.*\}', str(page_info)).group()
-    
-    #print(page_info)
     page_dict = json.loads(jsonStr)
-    print("\n -------------- \n")
-    for k in page_dict["propertyData"].keys():
-            
-        print("\n -------------- \n")
-        print(k,"    -------------\n")
-        print(page_dict["propertyData"][k])
 
-    print("\n -------------- \n")
-    print(page_dict.keys())
     
-    print("\n ------analyticsInfo-------- \n")
-    print(page_dict["analyticsInfo"])
-    print("\n -------------- \n")
-    print(page_dict["propertyData"]["text"]["shareDescription"])
+    """for k in page_dict.keys():
+        break
+        try:
+            for k2 in page_dict[k].keys():
+                print("\n -------------- \n")
+                print(k,k2,"\n")
+                print(page_dict[k][k2])
+        except:
+            pass
+    """
 
     property_dict = page_dict["propertyData"]
     property_id = property_dict['id']
+    property_type = property_dict["propertySubType"]
+    
+    price = property_dict['prices']['primaryPrice']
+    num_bedrooms = property_dict['bedrooms']
+    num_bathrooms = property_dict['bathrooms']
+    
     status = property_dict['status']
     description = property_dict['text']['description']
     short_description = property_dict['text']['shareDescription']
     address = property_dict['address']['displayAddress']
-    price = property_dict['prices']['primaryPrice']
-    num_bedrooms = property_dict['bedrooms']
+    
     postcode = property_dict['address']['outcode'] + " " + property_dict['address']['incode']
     nearest_stations = [(station['name'], station['distance']) for station in property_dict['nearestStations']]
 
-
-
-    {'analyticsBranch': {'agentType': 'ea_sales', 'branchId': 237332, 'branchName': 'London', 'branchPostcode': None, 'brandName': 'McHugh & Co', 'companyName': 'McHugh & Co', 'companyTradingName': 'McHugh & Co', 'companyType': 'iea', 'displayAddress': '71 Parkway,\r\nLondon,\r\nNW1 7PP', 'pageType': 'Standard'}, 'analyticsProperty': {'added': '20230503', 'auctionOnly': True, 'beds': 3, 'businessForSale': False, 'country': 'GB', 'currency': 'GBP', 'floorplanCount': 0, 'furnishedType': 'Not Specified', 'hasOnlineViewing': False, 'imageCount': 1, 'latitude': 51.48695, 'longitude': 0.09723, 'letAgreed': False, 'lettingType': 'Long term', 'maxSizeAc': None, 'maxSizeFt': None, 'minSizeAc': None, 'minSizeFt': None, 'ownership': 'Non-shared ownership', 'postcode': 'SE18 1HW', 'preOwned': 'Resale', 'price': 290000, 'priceQualifier': 'Guide Price', 'propertyId': 134401997, 'propertySubType': 'Terraced', 'propertyType': 'Houses', 'retirement': False, 'selectedCurrency': None, 'selectedPrice': None, 'soldSTC': False, 'videoProvider': 'No Video', 'viewType': 'Current', 'customUri': 'https://www.rightmove.co.uk/property-for-sale/properties'}}
-
+    freehold = (page_dict["propertyData"]['tenure']['tenureType']=="FREEHOLD")
+    #print("freehold",page_dict["propertyData"]['tenure']['tenureType'] == "FREEHOLD")
+    leaseremaining = page_dict["propertyData"]['tenure']['yearsRemainingOnLease']
+    
     agent = page_dict["analyticsInfo"]["analyticsBranch"]["brandName"]
-    contact_email = None
-    contact_phone = None
+
+    # Find garden details from the targeting list (bit cryptic)
+    targeting_list = property_dict["dfpAdInfo"]["targeting"]
+
+    # Determine if garden is a feature in the targeting list
+    feature_tmp = [ tmp_dict['value'] for tmp_dict in property_dict["dfpAdInfo"]["targeting"] if tmp_dict['key'] == "F" ][0]
+    hasGardenfeature = ("garden" in feature_tmp)
+
+    # Find EPC details
+    hasEPCimage = False
+    EPCUrl = None
+    if property_dict["epcGraphs"] != []:
+        hasEPCimage = True
+        EPCUrl = property_dict["epcGraphs"][0]["url"]
+
+    # Find floorplan details    
+    floorplan = False
+    floorplanURL = None
+    if property_dict["floorplans"] != []:
+        floorplan = True
+        floorplanURL = property_dict["floorplans"][0]["url"]
+
+    # Find image urls
     
     info = {"Link": link,
             "Price": price,
-            "Name": None,
-            "Description": None,#description,
+            "Description": description,
             "Short Description": short_description,
-            "Bedrooms": None,
-            "Bathrooms": None,
-            "Property type" : None,
+            "Bedrooms": num_bedrooms,
+            "Bathrooms": num_bathrooms,
+            "Property type" : property_type,
             "Address": address,
             "Postcode": postcode,
-            "Garden": None,
-            "Floorplan": None,
-            "Freehold": None,
-            'Nearest Stations': nearest_stations,}
+            "Garden": hasGardenfeature,
+            "Floorplan": floorplan,
+            "Floorplan URL": floorplanURL,
+            "EPC image" : hasEPCimage,
+            "EPC URL" : EPCUrl,
+            "Freehold": freehold,
+            "Lease Remaining": leaseremaining,
+            'Nearest Stations': nearest_stations,
+            "Agent": agent,
+            }
     
-    print(info)
-    return 1
+
+    # EPC extraction
+    # Lead image extraction
+    # Image extraction for analysis
+
+    return info
 
 
 if __name__ == "__main__":
 
-    link = "https://www.rightmove.co.uk/properties/134401997#/?channel=RES_BUY"
-    scrape_link_info(link)
+    #link = "https://www.rightmove.co.uk/properties/134401997#/?channel=RES_BUY"
+    #link = "https://www.rightmove.co.uk/properties/128062247#/?channel=RES_BUY"
+    
+    #scrape_link_info(link)
 
     # Scrape the property links
-    #linkdf = scrape_links()
+    linkdf = scrape_links()
     
 
 
-    #link_infos = [None,]*len(linkdf)
-    #for i, link in enumerate(linkdf["Links"]):
-    #    print(i,link)
-    #    info = scrape_link_info(link)
-    #    link_infos[i] = info
-    #    break
-
+    link_infos = [None,]*len(linkdf)
+    for i, link in enumerate(linkdf["Links"]):
+        print(i,link)
+        info = scrape_link_info(link)
+        link_infos[i] = info
+    
+    
+    
+    timestr = time.strftime("%Y%m%d_%H_%M_%S")
+    filename = "search_result_" + timestr + ".csv"
+    df = pd.DataFrame(link_infos)
+    df.to_csv(filename, encoding="utf-8", header="true", index=False)
     #print(link_infos)
