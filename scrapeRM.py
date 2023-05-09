@@ -14,12 +14,11 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 boroughs = {"Plumstead": "5E85326",
-    #"Southwark": "5E61518",
-    #
-    #"Greenwich": "5E61226",
-    #"Woolwich": "5E70391",
-    #"Nunhead": "5E70431",
-    #"Lewisham": "5E61413",
+    "Southwark": "5E61518",
+    "Greenwich": "5E61226",
+    "Woolwich": "5E70391",
+    "Nunhead": "5E70431",
+    "Lewisham": "5E61413",
     #"Hackney": "5E93953",
     #"Hammersmith and Fulham": "5E61407",
     #"Haringey": "5E61227",
@@ -60,7 +59,7 @@ def scrape_links():
 
     search_str = "".join(["https://www.rightmove.co.uk/property-for-sale/find.html?sortType=6",
                 "&minBedrooms=2",
-                "&maxPrice=375000",
+                "&maxPrice=425000",
                 "&minPrice=100000",
                 "&propertyTypes=detached%2Csemi-detached%2Cterraced",
                 "&includeSSTC=false",
@@ -121,6 +120,8 @@ def scrape_links():
     
     df = pd.DataFrame.from_dict(data).drop_duplicates(keep='last')
     df.to_csv(r"scraped_links.csv", encoding="utf-8", header="true", index=False)
+
+    logger.info(f"Unique property links found: {len(df)}")
 
     return df
 
@@ -239,18 +240,17 @@ if __name__ == "__main__":
     #scrape_link_info(link)
 
     # Scrape the property links
-    linkdf = scrape_links()
     
-
+    linkdf = scrape_links()
 
     link_infos = [None,]*len(linkdf)
     for i, link in enumerate(linkdf["Links"]):
-        print(i,link)
+        
+        logger.info(f"Property {i}")
         info = scrape_link_info(link)
         link_infos[i] = info
     
-    
-    
+      
     timestr = time.strftime("%Y%m%d_%H_%M_%S")
     filename = "search_result_" + timestr + ".csv"
     df = pd.DataFrame(link_infos)
