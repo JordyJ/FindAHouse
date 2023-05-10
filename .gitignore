@@ -35,7 +35,8 @@ MANIFEST
 
 # Data
 *.csv
-*.pd
+*.pickl
+EPC*
 data/
 
 # Installer logs

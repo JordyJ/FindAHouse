@@ -6,9 +6,12 @@ import re
 import pandas as pd
 import json
 import time
+from datetime import datetime, timedelta
 import random
 import logging
+import shutil
 
+from pytesseract import pytesseract
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -19,7 +22,7 @@ boroughs = {"Plumstead": "5E85326",
     "Woolwich": "5E70391",
     "Nunhead": "5E70431",
     "Lewisham": "5E61413",
-    #"Hackney": "5E93953",
+    "Hackney": "5E93953",
     #"Hammersmith and Fulham": "5E61407",
     #"Haringey": "5E61227",
     #"Harrow": "5E93956",
@@ -53,13 +56,23 @@ boroughs = {"Plumstead": "5E85326",
 
 myheaders = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Safari/537.36" }
 
+
+def URLtosafefilename( url ): 
+    extensions = [".jpg",".png",".jpeg",".gif",".eps",".tiff"]
+    for ext in extensions:
+        if ext in url:
+            newstr = "".join(url.split(ext)) + ext
+            break
+    return "".join(c for c in newstr if c.isalnum() or c in  ('_')).rstrip()
+
+
 def scrape_links():
 
     all_links = []
 
     search_str = "".join(["https://www.rightmove.co.uk/property-for-sale/find.html?sortType=6",
                 "&minBedrooms=2",
-                "&maxPrice=425000",
+                "&maxPrice=430000",
                 "&minPrice=100000",
                 "&propertyTypes=detached%2Csemi-detached%2Cterraced",
                 "&includeSSTC=false",
@@ -125,6 +138,23 @@ def scrape_links():
 
     return df
 
+def scrape_image(link,tag):
+    res = requests.get(link, stream = True)
+
+    #Generate a filename for the epc image
+    filename = tag + link.split("/")[-1]
+
+    if res.status_code == 200:
+        try:
+            with open(filename,'wb') as f:
+                shutil.copyfileobj(res.raw, f)
+            logging.info(f'Image sucessfully Downloaded: {filename}')
+        except Exception as e:
+            logging.error('Error at %s', 'division', exc_info=e)
+
+    else:
+        print('Image Couldn\'t be retrieved')
+
 
 def scrape_link_info(link):
     
@@ -147,9 +177,9 @@ def scrape_link_info(link):
     jsonStr = re.search(r'\{.*\}', str(page_info)).group()
     page_dict = json.loads(jsonStr)
 
-    
+    # Print keys and values of the property data
     """for k in page_dict.keys():
-        break
+        
         try:
             for k2 in page_dict[k].keys():
                 print("\n -------------- \n")
@@ -163,20 +193,33 @@ def scrape_link_info(link):
     property_id = property_dict['id']
     property_type = property_dict["propertySubType"]
     
-    price = property_dict['prices']['primaryPrice']
+    price = re.sub(r'\W+', '', property_dict['prices']['primaryPrice'])
     num_bedrooms = property_dict['bedrooms']
     num_bathrooms = property_dict['bathrooms']
-    
+
+    listingStr = property_dict["listingHistory"]["listingUpdateReason"].split(" ")
+    listedData = listingStr[-1]
+    if listedData == "yesterday":
+        listedData = (datetime.now() - timedelta(1)).strftime('%d/%m/%Y')
+    listedReason = listingStr[0]
+
     status = property_dict['status']
     description = property_dict['text']['description']
-    short_description = property_dict['text']['shareDescription']
+    description = re.sub(r"\<.*?\>"," ",description,0, re.UNICODE)
+    
+    short_description = property_dict['text']['shortDescription']
+    share_description = property_dict['text']['shareDescription']
+
+    #logger.info(description)
+    #logger.info(short_description)
+    #logger.info(share_description)
+    
     address = property_dict['address']['displayAddress']
     
     postcode = property_dict['address']['outcode'] + " " + property_dict['address']['incode']
     nearest_stations = [(station['name'], station['distance']) for station in property_dict['nearestStations']]
 
     freehold = (page_dict["propertyData"]['tenure']['tenureType']=="FREEHOLD")
-    #print("freehold",page_dict["propertyData"]['tenure']['tenureType'] == "FREEHOLD")
     leaseremaining = page_dict["propertyData"]['tenure']['yearsRemainingOnLease']
     
     agent = page_dict["analyticsInfo"]["analyticsBranch"]["brandName"]
@@ -188,12 +231,28 @@ def scrape_link_info(link):
     feature_tmp = [ tmp_dict['value'] for tmp_dict in property_dict["dfpAdInfo"]["targeting"] if tmp_dict['key'] == "F" ][0]
     hasGardenfeature = ("garden" in feature_tmp)
 
+    # Regex the Tax band    
+    reTax = r"[Tt]ax.*?[\s:\W][A-H][\W]"
+    taxMatch = re.search(reTax, description, re.UNICODE)
+    taxBand = None
+    if taxMatch is not None:
+        taxBand = taxMatch.group()[-2]
+
+    # Regex the EPC rating
+    reEPC = r"(([Ee][Nn][Ee][Rr][Gg][Yy]\s\w\w)|([Ee][Pp][Cc])).*?[\s:\W][A-H][\W]"
+    EPCMatch = re.search(reEPC, description, re.UNICODE)
+    EPCest = None
+    if EPCMatch is not None:
+        EPCest = EPCMatch.group()[-2]
+
     # Find EPC details
     hasEPCimage = False
     EPCUrl = None
     if property_dict["epcGraphs"] != []:
         hasEPCimage = True
         EPCUrl = property_dict["epcGraphs"][0]["url"]
+        if False:
+            scrape_image(EPCUrl,"EPC_")
 
     # Find floorplan details    
     floorplan = False
@@ -203,37 +262,51 @@ def scrape_link_info(link):
         floorplanURL = property_dict["floorplans"][0]["url"]
 
     # Find image urls
+
+    # Find virtual tour link
+    virtualtour = False
+    virtualtourURL = None
+    if property_dict["virtualTours"] != []:
+        virtualtour = False
+        virtualtourURL = property_dict["virtualTours"][0]["url"]
     
+    isAuction = page_dict["analyticsInfo"]["analyticsProperty"]["auctionOnly"]
+
     info = {"Link": link,
+            "Listing change reason": listedReason,
+            "Listing date": listedData,
             "Price": price,
             "Description": description,
-            "Short Description": short_description,
+            "Short Description": share_description,
             "Bedrooms": num_bedrooms,
             "Bathrooms": num_bathrooms,
-            "Property type" : property_type,
+            "Property Type" : property_type,
             "Address": address,
             "Postcode": postcode,
             "Garden": hasGardenfeature,
             "Floorplan": floorplan,
             "Floorplan URL": floorplanURL,
-            "EPC image" : hasEPCimage,
+            "EPC rating est": EPCest,
+            "EPC Image" : hasEPCimage,
             "EPC URL" : EPCUrl,
+            "Tax Band": taxBand,
             "Freehold": freehold,
             "Lease Remaining": leaseremaining,
             'Nearest Stations': nearest_stations,
             "Agent": agent,
+            "Auction": isAuction,
             }
     
+    # Council tax "([tT]ax)[ :]?([bB]and)?[ :]*[A-H]"gm
 
+    # 33 [Tt]ax
     # EPC extraction
     # Lead image extraction
     # Image extraction for analysis
 
     return info
 
-
-if __name__ == "__main__":
-
+def main():
     #link = "https://www.rightmove.co.uk/properties/134401997#/?channel=RES_BUY"
     #link = "https://www.rightmove.co.uk/properties/128062247#/?channel=RES_BUY"
     
@@ -249,10 +322,14 @@ if __name__ == "__main__":
         logger.info(f"Property {i}")
         info = scrape_link_info(link)
         link_infos[i] = info
+        
     
       
-    timestr = time.strftime("%Y%m%d_%H_%M_%S")
+    timestr = time.strftime("%Y-%m-%d_%H-%M")
     filename = "search_result_" + timestr + ".csv"
     df = pd.DataFrame(link_infos)
     df.to_csv(filename, encoding="utf-8", header="true", index=False)
-    #print(link_infos)
+
+
+if __name__ == "__main__":
+    main()
