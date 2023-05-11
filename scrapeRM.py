@@ -1,5 +1,3 @@
-# importing our libraries
-
 import requests
 from bs4 import BeautifulSoup
 import re
@@ -11,18 +9,18 @@ import random
 import logging
 import shutil
 
-from pytesseract import pytesseract
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-boroughs = {"Plumstead": "5E85326",
+BOROUGHS = {
     "Southwark": "5E61518",
     "Greenwich": "5E61226",
-    "Woolwich": "5E70391",
-    "Nunhead": "5E70431",
-    "Lewisham": "5E61413",
-    "Hackney": "5E93953",
+    #"Woolwich": "5E70391",
+    #"Nunhead": "5E70431",
+    #"Lewisham": "5E61413",
+    #"Hackney": "5E93953",
+    #"Plumstead": "5E85326",
     #"Hammersmith and Fulham": "5E61407",
     #"Haringey": "5E61227",
     #"Harrow": "5E93956",
@@ -54,83 +52,31 @@ boroughs = {"Plumstead": "5E85326",
     #"Enfield": "5E93950",
 }
 
-myheaders = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Safari/537.36" }
+MY_HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Safari/537.36" }
+RESULTS_PER_PAGE = 24
+MAX_NUM_PAGES = 41
 
-
-def URLtosafefilename( url ): 
-    extensions = [".jpg",".png",".jpeg",".gif",".eps",".tiff"]
-    for ext in extensions:
-        if ext in url:
-            newstr = "".join(url.split(ext)) + ext
-            break
-    return "".join(c for c in newstr if c.isalnum() or c in  ('_')).rstrip()
-
-
-def scrape_links():
+def scrape_links_across_boroughs(search_str, boroughs):
+    # Scrapes property links on rightmove that satisfy the search_str across a list of boroughs
+    # Returns a list of unique links to properties
 
     all_links = []
 
-    search_str = "".join(["https://www.rightmove.co.uk/property-for-sale/find.html?sortType=6",
-                "&minBedrooms=2",
-                "&maxPrice=430000",
-                "&minPrice=100000",
-                "&propertyTypes=detached%2Csemi-detached%2Cterraced",
-                "&includeSSTC=false",
-                "&mustHave=garden",
-                "&dontShow=newHome%2Cretirement%2CsharedOwnership%2Cauction", # Don't show auctions
-                "&locationIdentifier=REGION%"])# then append with location id and search page index 
+    if "rightmove.co.uk" not in search_str:
+        raise ValueError("search_str must contain a rightmove.co.uk url")
     
-    # The maximum page limit for rightmove is 42
     for borough_key, borough_id in boroughs.items():
 
-        # initialise index, this tracks the page number we are on. every additional page adds 24 to the index
-        index = 0
         
         logger.info(f"Scraping {borough_key}")
+
+        search_url = search_str + borough_id
         
-        for pages in range(41):
-            
-            searchUrl = search_str + borough_id + f"&index={index}"
-
-            # request our webpage
-            response = requests.get(searchUrl, headers=myheaders)
-
-            # check status
-            response.raise_for_status()
-
-            logger.debug(f"{response.status_code}")
-              
-            soup = BeautifulSoup(response.text, "html.parser")
-
-            # This gets the list of apartments
-            houses = soup.find_all("div", class_="l-searchResult is-list")
-
-            # This gets the number of listings
-            number_of_listings = soup.find("span", {"class": "searchHeader-resultCount"}).get_text()
-            number_of_listings = int(number_of_listings.replace(",", ""))
-
-            for i, house in enumerate(houses):
-
-                # append link
-                apartment_info = house.find("a", class_="propertyCard-link")
-                link = "https://www.rightmove.co.uk" + apartment_info.attrs["href"]
-                all_links.append(link)
-
-            #print(f"You have scrapped {pages + 1} pages of apartment listings.")
-            #print(f"You have {number_of_listings - index} listings left to go")
-            #print("\n")
-
-            index = index + 24
-            if index >= number_of_listings:
-                break
-            # code to make them think we are human
-            time.sleep(random.randint(1, 3))
-
-            
+        all_links.extend(scrape_links(search_url))
+                    
     logger.info("Searching complete. Returning links.")
-    # convert data to dataframe
-    data = {"Links": all_links,}
     
+    data = {"Links": all_links,}
     df = pd.DataFrame.from_dict(data).drop_duplicates(keep='last')
     df.to_csv(r"scraped_links.csv", encoding="utf-8", header="true", index=False)
 
@@ -138,7 +84,50 @@ def scrape_links():
 
     return df
 
+    
+
+
+def scrape_links(url):
+    # Scrapes links on Rightmove to properties that match the search terms defined in the url
+    index = 0
+    property_links = []
+
+    for page_number in range(MAX_NUM_PAGES):
+            
+        search_url = url + f"&index={index}"
+
+        # request our webpage
+        response = requests.get(search_url, headers=MY_HEADERS)
+
+        # check status
+        response.raise_for_status()
+        logger.debug(f"{response.status_code}")
+            
+        soup = BeautifulSoup(response.text, "html.parser")
+
+        properties = soup.find_all("div", class_="l-searchResult is-list")
+
+        # This gets the number of listings
+        number_of_listings = soup.find("span", {"class": "searchHeader-resultCount"}).get_text()
+        number_of_listings = int(number_of_listings.replace(",", ""))
+
+        for i, property in enumerate(properties):
+
+            # append link
+            property_info = property.find("a", class_="propertyCard-link")
+            link = "https://www.rightmove.co.uk" + property_info.attrs["href"]
+            property_links.append(link)
+
+        index += RESULTS_PER_PAGE
+        if index >= number_of_listings:
+            return property_links
+        
+        time.sleep(random.randint(1, 3))
+
+
 def scrape_image(link,tag):
+    # Downloads an image from the link and saves with the tag prefix
+
     res = requests.get(link, stream = True)
 
     #Generate a filename for the epc image
@@ -157,20 +146,18 @@ def scrape_image(link,tag):
 
 
 def scrape_link_info(link):
+    # Scrapes relevant property info from rightmove link and returns a dict.
     
     logger.info(f"Extracting information from {link}")
-
     
     # request our page
-    response = requests.get(link, headers=myheaders)
+    response = requests.get(link, headers=MY_HEADERS)
 
     # check status
-    response.raise_for_status()
-    
+    response.raise_for_status()    
     logger.debug(f"Response status: {response.status_code}")
 
-    soup = BeautifulSoup(response.text, "html.parser")
-    
+    soup = BeautifulSoup(response.text, "html.parser")    
     page_info = soup.find(string=re.compile("window.PAGE_MODEL"))
 
     # remove javascript fluff from dict inside script
@@ -178,16 +165,18 @@ def scrape_link_info(link):
     page_dict = json.loads(jsonStr)
 
     # Print keys and values of the property data
-    """for k in page_dict.keys():
+    verbose_mode = False
+    if verbose_mode == True:
+        for k in page_dict.keys():
         
-        try:
-            for k2 in page_dict[k].keys():
-                print("\n -------------- \n")
-                print(k,k2,"\n")
-                print(page_dict[k][k2])
-        except:
-            pass
-    """
+            try:
+                for k2 in page_dict[k].keys():
+                    print("\n -------------- \n")
+                    print(k,k2,"\n")
+                    print(page_dict[k][k2])
+            except:
+                pass
+        
 
     property_dict = page_dict["propertyData"]
     property_id = property_dict['id']
@@ -297,25 +286,29 @@ def scrape_link_info(link):
             "Auction": isAuction,
             }
     
-    # Council tax "([tT]ax)[ :]?([bB]and)?[ :]*[A-H]"gm
-
-    # 33 [Tt]ax
-    # EPC extraction
-    # Lead image extraction
-    # Image extraction for analysis
-
     return info
 
 def main():
-    #link = "https://www.rightmove.co.uk/properties/134401997#/?channel=RES_BUY"
-    #link = "https://www.rightmove.co.uk/properties/128062247#/?channel=RES_BUY"
-    
-    #scrape_link_info(link)
 
-    # Scrape the property links
-    
-    linkdf = scrape_links()
+    max_price = 400000
+    min_price = 100000
+    min_bedrooms = 2
 
+
+    search_str = "".join(["https://www.rightmove.co.uk/property-for-sale/find.html?sortType=6",
+                f"&minBedrooms={min_bedrooms}",
+                f"&maxPrice={max_price}",
+                f"&minPrice={min_price}",
+                "&propertyTypes=detached%2Csemi-detached%2Cterraced",
+                "&includeSSTC=false",
+                "&mustHave=garden",
+                "&dontShow=newHome%2Cretirement%2CsharedOwnership%2Cauction",
+                "&locationIdentifier=REGION%"])
+    
+    # Scrape the property links    
+    linkdf = scrape_links_across_boroughs(search_str,BOROUGHS)
+
+    # Extract information from each scraped link
     link_infos = [None,]*len(linkdf)
     for i, link in enumerate(linkdf["Links"]):
         
@@ -324,11 +317,12 @@ def main():
         link_infos[i] = info
         
     
-      
+    # Save to csv file named according to current time.
     timestr = time.strftime("%Y-%m-%d_%H-%M")
     filename = "search_result_" + timestr + ".csv"
     df = pd.DataFrame(link_infos)
     df.to_csv(filename, encoding="utf-8", header="true", index=False)
+
 
 
 if __name__ == "__main__":
