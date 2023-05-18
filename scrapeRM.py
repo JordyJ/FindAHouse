@@ -16,11 +16,11 @@ logger = logging.getLogger(__name__)
 BOROUGHS = {
     "Southwark": "5E61518",
     "Greenwich": "5E61226",
-    #"Woolwich": "5E70391",
-    #"Nunhead": "5E70431",
-    #"Lewisham": "5E61413",
-    #"Hackney": "5E93953",
-    #"Plumstead": "5E85326",
+    "Woolwich": "5E70391",
+    "Nunhead": "5E70431",
+    "Lewisham": "5E61413",
+    "Hackney": "5E93953",
+    "Plumstead": "5E85326",
     #"Hammersmith and Fulham": "5E61407",
     #"Haringey": "5E61227",
     #"Harrow": "5E93956",
@@ -290,7 +290,7 @@ def scrape_link_info(link):
 
 def main():
 
-    max_price = 400000
+    max_price = 425000
     min_price = 100000
     min_bedrooms = 2
 
